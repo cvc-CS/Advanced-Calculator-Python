@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Andre Calc — Scientific Calculator</title>
+<style>
+  :root {
+    --bg: #0F0F14;
+    --text-main: #FFFFFF;
+    --text-history: #6B6B76;
+    --num-bg: #2B2B33;
+    --num-bg-hover: #38383F;
+    --num-bg-press: #45454E;
+    --top-bg: #3F3F49;
+    --top-bg-hover: #4C4C57;
+    --operator-bg: #FF9F0A;
+    --operator-bg-hover: #FFB238;
+    --memory-bg: #2C3E50;
+    --memory-bg-hover: #37516A;
+    --sci-bg: #232329;
+    --sci-bg-hover: #2E2E36;
+    --sci-text: #B8B8C2;
+    --brand: #FF9F0A;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    padding: 20px;
+  }
+
+  .calc-wrapper {
+    width: 100%;
+    max-width: 420px;
+  }
+
+  .brand-row {
+    display: flex;
+    align-items: baseline;
+    margin-bottom: 14px;
+    padding: 0 4px;
+  }
+
+  .brand-main {
+    color: var(--brand);
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: 0.5px;
+  }
+
+  .brand-sub {
+    color: var(--text-history);
+    font-size: 15px;
+    margin-left: 2px;
+  }
+
+  .screen {
+    padding: 4px 14px 16px;
+  }
+
+  .history {
+    text-align: right;
+    color: var(--text-history);
+    font-size: 15px;
+    min-height: 20px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .display {
+    text-align: right;
+    color: var(--text-main);
+    font-size: 52px;
+    font-weight: 700;
+    min-height: 64px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  button {
+    border: none;
+    outline: none;
+    cursor: pointer;
+    font-family: inherit;
+    padding: 20px 0;
+    font-size: 20px;
+    color: var(--text-main);
+    background: var(--num-bg);
+    transition: background 0.12s ease, transform 0.06s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button:hover {
+    background: var(--num-bg-hover);
+  }
+
+  button:active {
+    background: var(--num-bg-press);
+    transform: scale(0.97);
+  }
+
+  button.top {
+    background: var(--top-bg);
+  }
+  button.top:hover { background: var(--top-bg-hover); }
+
+  button.operator {
+    background: var(--operator-bg);
+  }
+  button.operator:hover { background: var(--operator-bg-hover); }
+
+  button.memory {
+    background: var(--memory-bg);
+    font-size: 15px;
+  }
+  button.memory:hover { background: var(--memory-bg-hover); }
+
+  button.sci {
+    background: var(--sci-bg);
+    color: var(--sci-text);
+    font-size: 15px;
+  }
+  button.sci:hover { background: var(--sci-bg-hover); }
+
+  @media (max-width: 460px) {
+    .display { font-size: 40px; }
+    button { padding: 16px 0; font-size: 18px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="calc-wrapper">
+  <div class="brand-row">
+    <span class="brand-main">ANDRE</span><span class="brand-sub">CALC</span>
+  </div>
+
+  <div class="screen">
+    <div class="history" id="history"></div>
+    <div class="display" id="display">0</div>
+  </div>
+
+  <div class="grid" id="grid"></div>
+</div>
+
+<script>
+// ============================================================
+// BUTTON LAYOUT — same structure as the Python version
+// ============================================================
+const buttonRows = [
+  ["MC", "MR", "M+", "M-"],
+  ["AC", "+/-", "%", "÷"],
+  ["7", "8", "9", "×"],
+  ["4", "5", "6", "-"],
+  ["1", "2", "3", "+"],
+  ["0", ".", "⌫", "="],
+  ["√", "x²", "1/x", "xʸ"],
+  ["sin", "cos", "tan", "log"],
+  ["π", "e", "ln", "!"]
+];
+
+const operatorSymbols = ["÷", "×", "-", "+", "="];
+const topSymbols = ["AC", "+/-", "%"];
+const memorySymbols = ["MC", "MR", "M+", "M-"];
+const advancedSymbols = ["√", "x²", "1/x", "sin", "cos", "tan", "log", "ln", "π", "e", "!"];
+const twoNumberSymbols = ["xʸ"];
+
+const grid = document.getElementById("grid");
+const display = document.getElementById("display");
+const historyEl = document.getElementById("history");
+
+// build the buttons
+buttonRows.forEach(row => {
+  row.forEach(value => {
+    const btn = document.createElement("button");
+    btn.textContent = value;
+
+    if (memorySymbols.includes(value)) btn.classList.add("memory");
+    else if (topSymbols.includes(value)) btn.classList.add("top");
+    else if (operatorSymbols.includes(value) || twoNumberSymbols.includes(value)) btn.classList.add("operator");
+    else if (advancedSymbols.includes(value)) btn.classList.add("sci");
+
+    btn.addEventListener("click", () => handleInput(value));
+    grid.appendChild(btn);
+  });
+});
+
+// ============================================================
+// CALCULATOR STATE
+// ============================================================
+let A = null;
+let operator = null;
+let B = null;
+let memoryValue = 0;
+
+function removeZeroDecimal(num) {
+  if (Number.isInteger(num)) return String(num);
+  return String(Math.round(num * 1e8) / 1e8);
+}
+
+function clearAll() {
+  A = null;
+  operator = null;
+  B = null;
+}
+
+function doMath(numA, numB, op) {
+  switch (op) {
+    case "+": return numA + numB;
+    case "-": return numA - numB;
+    case "×": return numA * numB;
+    case "÷": return numA / numB;
+    case "xʸ": return Math.pow(numA, numB);
+  }
+}
+
+function handleInput(value) {
+  // ---- OPERATORS: + - × ÷ = xʸ ----
+  if (operatorSymbols.includes(value) || twoNumberSymbols.includes(value)) {
+    if (value === "=") {
+      if (A !== null && operator !== null) {
+        B = parseFloat(display.textContent);
+        const numA = parseFloat(A);
+        const numB = B;
+        try {
+          if (operator === "÷" && numB === 0) throw new Error("div0");
+          const result = doMath(numA, numB, operator);
+          historyEl.textContent = `${removeZeroDecimal(numA)} ${operator} ${removeZeroDecimal(numB)} =`;
+          display.textContent = removeZeroDecimal(result);
+        } catch (e) {
+          display.textContent = "Error";
+          historyEl.textContent = "";
+        }
+        clearAll();
+      }
+    } else {
+      // fix chaining: calculate pending operation first
+      if (operator !== null && B !== null) {
+        const numA = parseFloat(A);
+        const numB = parseFloat(display.textContent);
+        try {
+          if (operator === "÷" && numB === 0) throw new Error("div0");
+          const result = doMath(numA, numB, operator);
+          display.textContent = removeZeroDecimal(result);
+        } catch (e) {
+          display.textContent = "Error";
+          clearAll();
+          return;
+        }
+      }
+      A = display.textContent;
+      display.textContent = "0";
+      B = "0";
+      operator = value;
+    }
+  }
+
+  // ---- TOP BUTTONS: AC +/- % ----
+  else if (topSymbols.includes(value)) {
+    if (value === "AC") {
+      clearAll();
+      display.textContent = "0";
+      historyEl.textContent = "";
+    } else if (value === "+/-") {
+      display.textContent = removeZeroDecimal(parseFloat(display.textContent) * -1);
+    } else if (value === "%") {
+      display.textContent = removeZeroDecimal(parseFloat(display.textContent) / 100);
+    }
+  }
+
+  // ---- MEMORY BUTTONS ----
+  else if (memorySymbols.includes(value)) {
+    const current = parseFloat(display.textContent);
+    if (value === "MC") memoryValue = 0;
+    else if (value === "MR") display.textContent = removeZeroDecimal(memoryValue);
+    else if (value === "M+") memoryValue += current;
+    else if (value === "M-") memoryValue -= current;
+  }
+
+  // ---- SCIENTIFIC BUTTONS ----
+  else if (advancedSymbols.includes(value)) {
+    const current = parseFloat(display.textContent);
+    try {
+      let result;
+      switch (value) {
+        case "√":
+          if (current < 0) throw new Error("neg");
+          result = Math.sqrt(current);
+          break;
+        case "x²": result = Math.pow(current, 2); break;
+        case "1/x":
+          if (current === 0) throw new Error("div0");
+          result = 1 / current;
+          break;
+        case "sin": result = Math.sin(current * Math.PI / 180); break;
+        case "cos": result = Math.cos(current * Math.PI / 180); break;
+        case "tan": result = Math.tan(current * Math.PI / 180); break;
+        case "log":
+          if (current <= 0) throw new Error("neg");
+          result = Math.log10(current);
+          break;
+        case "ln":
+          if (current <= 0) throw new Error("neg");
+          result = Math.log(current);
+          break;
+        case "π": result = Math.PI; break;
+        case "e": result = Math.E; break;
+        case "!":
+          if (current < 0 || !Number.isInteger(current)) throw new Error("bad");
+          result = factorial(current);
+          break;
+      }
+      display.textContent = removeZeroDecimal(result);
+    } catch (e) {
+      display.textContent = "Error";
+    }
+  }
+
+  // ---- BACKSPACE ----
+  else if (value === "⌫") {
+    const current = display.textContent;
+    display.textContent = current.length <= 1 ? "0" : current.slice(0, -1);
+  }
+
+  // ---- DIGITS / DECIMAL ----
+  else {
+    if (value === ".") {
+      if (!display.textContent.includes(".")) display.textContent += ".";
+    } else {
+      if (display.textContent === "0") display.textContent = value;
+      else display.textContent += value;
+    }
+  }
+}
+
+function factorial(n) {
+  let result = 1;
+  for (let i = 2; i <= n; i++) result *= i;
+  return result;
+}
+
+// ============================================================
+// KEYBOARD SUPPORT
+// ============================================================
+const keyMap = {
+  "+": "+", "-": "-", "*": "×", "/": "÷",
+  "Enter": "=", "Backspace": "⌫"
+};
+
+document.addEventListener("keydown", (e) => {
+  if (/[0-9.]/.test(e.key)) {
+    handleInput(e.key);
+  } else if (keyMap[e.key]) {
+    e.preventDefault();
+    handleInput(keyMap[e.key]);
+  }
+});
+</script>
+</body>
+</html>
