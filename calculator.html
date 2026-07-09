@@ -1,525 +1,663 @@
-"""
-ANDRE CALC — v2 (Futuristic HUD Edition)
-A scientific calculator built with Python + tkinter.
-
-Matches the HTML/JS version: sidebar menu (BASIC / SCI / MEM / LOG),
-cyan HUD styling, DEG/RAD toggle, and a persistent calculation history
-(saved to a local history.json file next to this script).
-"""
-
-import tkinter as tk
-import json
-import math
-import os
-
-# ---------------------------------------------------------------
-# THEME
-# ---------------------------------------------------------------
-BG          = "#05070C"
-PANEL       = "#0A0E18"
-PANEL_2     = "#0D1220"
-LINE        = "#1B2436"
-CYAN        = "#4CF3FF"
-CYAN_DIM    = "#123138"
-VIOLET      = "#9B7CFF"
-TEXT        = "#DCEFFF"
-TEXT_DIM    = "#5A7290"
-DANGER      = "#FF5C7A"
-KEY_BG      = "#0F1524"
-KEY_HOVER   = "#131A2C"
-
-FONT_DISPLAY = ("Consolas", 40, "bold")
-FONT_HIST    = ("Consolas", 11)
-FONT_KEY     = ("Segoe UI", 14, "bold")
-FONT_KEY_SM  = ("Consolas", 11)
-FONT_NAV     = ("Segoe UI", 10, "bold")
-FONT_BRAND   = ("Segoe UI", 11, "bold")
-
-HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "andrecalc_history.json")
-
-# ---------------------------------------------------------------
-# STATE
-# ---------------------------------------------------------------
-A = None
-operator = None
-B = None
-memory_value = 0.0
-angle_mode = "DEG"
-history_entries = []
-
-
-def load_history():
-    global history_entries
-    try:
-        with open(HISTORY_FILE, "r") as f:
-            history_entries = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        history_entries = []
-
-
-def save_history():
-    try:
-        with open(HISTORY_FILE, "w") as f:
-            json.dump(history_entries, f)
-    except OSError:
-        pass  # fail silently, history just won't persist
-
-
-def remove_zero_decimal(num):
-    if num == int(num):
-        return str(int(num))
-    return str(round(num, 8))
-
-
-def clear_all():
-    global A, operator, B
-    A = None
-    operator = None
-    B = None
-
-
-def do_math(num_a, num_b, op):
-    if op == "+":
-        return num_a + num_b
-    if op == "-":
-        return num_a - num_b
-    if op == "×":
-        return num_a * num_b
-    if op == "÷":
-        return num_a / num_b
-    if op == "xʸ":
-        return num_a ** num_b
-
-
-def to_radians(value):
-    return math.radians(value) if angle_mode == "DEG" else value
-
-
-# ---------------------------------------------------------------
-# WINDOW
-# ---------------------------------------------------------------
-root = tk.Tk()
-root.title("ANDRE.CALC")
-root.configure(bg=BG)
-root.resizable(False, False)
-
-console = tk.Frame(root, bg=PANEL, highlightbackground=LINE, highlightthickness=1)
-console.pack(padx=16, pady=16)
-
-# ---------------------------------------------------------------
-# SIDEBAR MENU
-# ---------------------------------------------------------------
-sidebar = tk.Frame(console, bg=PANEL_2, width=100)
-sidebar.pack(side="left", fill="y")
-sidebar.pack_propagate(False)
-
-brand = tk.Label(sidebar, text="ANDRE", font=FONT_BRAND, bg=PANEL_2, fg=CYAN)
-brand.pack(pady=(16, 0))
-brand_sub = tk.Label(sidebar, text="CALC // v2", font=("Consolas", 8), bg=PANEL_2, fg=TEXT_DIM)
-brand_sub.pack(pady=(0, 18))
-
-nav_buttons = {}
-active_panel = tk.StringVar(value="basic")
-
-
-def make_nav_button(parent, label, idx, key):
-    frame = tk.Frame(parent, bg=PANEL_2, cursor="hand2")
-    frame.pack(fill="x", pady=2)
-
-    tick = tk.Frame(frame, bg=TEXT_DIM, width=3, height=3)
-    inner = tk.Frame(frame, bg=PANEL_2)
-    inner.pack(pady=6)
-
-    idx_lbl = tk.Label(inner, text=idx, font=("Consolas", 8), bg=PANEL_2, fg=TEXT_DIM)
-    idx_lbl.pack()
-    text_lbl = tk.Label(inner, text=label, font=FONT_NAV, bg=PANEL_2, fg=TEXT_DIM)
-    text_lbl.pack()
-
-    def on_click(event=None):
-        switch_panel(key)
-
-    for widget in (frame, inner, idx_lbl, text_lbl):
-        widget.bind("<Button-1>", on_click)
-
-    nav_buttons[key] = (frame, idx_lbl, text_lbl)
-    return frame
-
-
-make_nav_button(sidebar, "BASIC", "01", "basic")
-make_nav_button(sidebar, "SCI", "02", "sci")
-make_nav_button(sidebar, "MEM", "03", "mem")
-make_nav_button(sidebar, "LOG", "04", "hist")
-
-# ---------------------------------------------------------------
-# MAIN PANEL
-# ---------------------------------------------------------------
-main = tk.Frame(console, bg=PANEL)
-main.pack(side="left", fill="both", expand=True)
-
-# top bar
-topbar = tk.Frame(main, bg=PANEL, highlightbackground=LINE, highlightthickness=0)
-topbar.pack(fill="x")
-tk.Frame(main, bg=LINE, height=1).pack(fill="x")
-
-status = tk.Label(topbar, text="●  SYSTEM READY", font=("Consolas", 9), bg=PANEL, fg=CYAN)
-status.pack(side="left", padx=14, pady=8)
-
-mode_frame = tk.Frame(topbar, bg=PANEL_2, highlightbackground=LINE, highlightthickness=1)
-mode_frame.pack(side="right", padx=14, pady=6)
-
-mode_buttons = {}
-
-
-def set_angle_mode(mode):
-    global angle_mode
-    angle_mode = mode
-    for key, btn in mode_buttons.items():
-        if key == mode:
-            btn.configure(bg=CYAN_DIM, fg=CYAN)
-        else:
-            btn.configure(bg=PANEL_2, fg=TEXT_DIM)
-
-
-for mode in ("DEG", "RAD"):
-    b = tk.Label(mode_frame, text=mode, font=("Consolas", 9, "bold"), bg=PANEL_2, fg=TEXT_DIM,
-                 padx=8, pady=3, cursor="hand2")
-    b.pack(side="left")
-    b.bind("<Button-1>", lambda e, m=mode: set_angle_mode(m))
-    mode_buttons[mode] = b
-set_angle_mode("DEG")
-
-# screen
-screen = tk.Frame(main, bg=PANEL)
-screen.pack(fill="x", padx=20, pady=(14, 6))
-
-history_line = tk.Label(screen, text="", font=FONT_HIST, bg=PANEL, fg=TEXT_DIM, anchor="e")
-history_line.pack(fill="x")
-
-display_var = tk.StringVar(value="0")
-display = tk.Label(screen, textvariable=display_var, font=FONT_DISPLAY, bg=PANEL, fg=TEXT, anchor="e")
-display.pack(fill="x", pady=(4, 10))
-
-tk.Frame(main, bg=CYAN_DIM, height=1).pack(fill="x", padx=20)
-
-# panel container (holds the 4 switchable views)
-panel_container = tk.Frame(main, bg=PANEL)
-panel_container.pack(fill="both", expand=True, padx=16, pady=14)
-
-panels = {}
-
-
-def make_key(parent, label, value, kind="normal", font=FONT_KEY):
-    colors = {
-        "normal": (KEY_BG, TEXT),
-        "op": ("#16233A", CYAN),
-        "top": (KEY_BG, VIOLET),
-        "equals": (CYAN, "#04141A"),
-        "mem": (KEY_BG, TEXT_DIM),
-    }
-    bg, fg = colors.get(kind, (KEY_BG, TEXT))
-    btn = tk.Label(parent, text=label, font=font, bg=bg, fg=fg,
-                    width=4, height=2, cursor="hand2",
-                    highlightbackground=LINE, highlightthickness=1)
-
-    def on_enter(e):
-        btn.configure(bg=KEY_HOVER if kind not in ("equals",) else CYAN)
-
-    def on_leave(e):
-        btn.configure(bg=bg)
-
-    def on_click(e):
-        handle_input(value)
-
-    btn.bind("<Enter>", on_enter)
-    btn.bind("<Leave>", on_leave)
-    btn.bind("<Button-1>", on_click)
-    return btn
-
-
-# ---- BASIC panel ----
-basic_panel = tk.Frame(panel_container, bg=PANEL)
-panels["basic"] = basic_panel
-
-basic_layout = [
-    [("AC", "AC", "top"), ("+/-", "+/-", "top"), ("%", "%", "top"), ("÷", "÷", "op")],
-    [("7", "7", "normal"), ("8", "8", "normal"), ("9", "9", "normal"), ("×", "×", "op")],
-    [("4", "4", "normal"), ("5", "5", "normal"), ("6", "6", "normal"), ("−", "-", "op")],
-    [("1", "1", "normal"), ("2", "2", "normal"), ("3", "3", "normal"), ("+", "+", "op")],
-    [("0", "0", "normal"), (".", ".", "normal"), ("⌫", "⌫", "top"), ("=", "=", "equals")],
-]
-for r, row in enumerate(basic_layout):
-    for c, (label, value, kind) in enumerate(row):
-        make_key(basic_panel, label, value, kind).grid(row=r, column=c, padx=4, pady=4, sticky="nsew")
-for i in range(4):
-    basic_panel.grid_columnconfigure(i, weight=1)
-
-# ---- SCI panel ----
-sci_panel = tk.Frame(panel_container, bg=PANEL)
-panels["sci"] = sci_panel
-
-sci_layout = [
-    [("√", "√"), ("x²", "x²"), ("1/x", "1/x"), ("xʸ", "xʸ")],
-    [("sin", "sin"), ("cos", "cos"), ("tan", "tan"), ("log", "log")],
-    [("π", "π"), ("e", "e"), ("ln", "ln"), ("n!", "!")],
-]
-for r, row in enumerate(sci_layout):
-    for c, (label, value) in enumerate(row):
-        kind = "op" if value == "xʸ" else "normal"
-        make_key(sci_panel, label, value, kind, font=FONT_KEY_SM).grid(row=r, column=c, padx=4, pady=4, sticky="nsew")
-for i in range(4):
-    sci_panel.grid_columnconfigure(i, weight=1)
-
-# ---- MEM panel ----
-mem_panel = tk.Frame(panel_container, bg=PANEL)
-panels["mem"] = mem_panel
-
-mem_layout = [("MC", "MC"), ("MR", "MR"), ("M+", "M+"), ("M-", "M-")]
-for c, (label, value) in enumerate(mem_layout):
-    make_key(mem_panel, label, value, "mem", font=FONT_KEY_SM).grid(row=0, column=c, padx=4, pady=4, sticky="nsew")
-for i in range(4):
-    mem_panel.grid_columnconfigure(i, weight=1)
-
-# ---- HIST panel ----
-hist_panel = tk.Frame(panel_container, bg=PANEL)
-panels["hist"] = hist_panel
-
-hist_canvas = tk.Canvas(hist_panel, bg=PANEL, highlightthickness=0, height=220)
-hist_scrollbar = tk.Scrollbar(hist_panel, orient="vertical", command=hist_canvas.yview)
-hist_list_frame = tk.Frame(hist_canvas, bg=PANEL)
-
-hist_list_frame.bind("<Configure>", lambda e: hist_canvas.configure(scrollregion=hist_canvas.bbox("all")))
-hist_canvas.create_window((0, 0), window=hist_list_frame, anchor="nw", width=380)
-hist_canvas.configure(yscrollcommand=hist_scrollbar.set)
-
-hist_canvas.pack(side="top", fill="both", expand=True)
-hist_scrollbar.pack_forget()  # keep it clean; scroll with mouse wheel instead
-
-
-def on_mousewheel(event):
-    hist_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-
-
-hist_canvas.bind_all("<MouseWheel>", on_mousewheel)
-
-
-def render_history():
-    for widget in hist_list_frame.winfo_children():
-        widget.destroy()
-
-    if not history_entries:
-        tk.Label(hist_list_frame, text="NO ENTRIES LOGGED", font=("Consolas", 10),
-                 bg=PANEL, fg=TEXT_DIM).pack(pady=30)
-        return
-
-    for entry in reversed(history_entries):
-        item = tk.Frame(hist_list_frame, bg="#0D1220", highlightbackground=LINE, highlightthickness=1)
-        item.pack(fill="x", pady=4)
-
-        expr_lbl = tk.Label(item, text=entry["expr"], font=("Consolas", 9), bg="#0D1220", fg=TEXT_DIM, anchor="e")
-        expr_lbl.pack(fill="x", padx=10, pady=(6, 0))
-        res_lbl = tk.Label(item, text=entry["result"], font=("Consolas", 14, "bold"), bg="#0D1220", fg=CYAN, anchor="e")
-        res_lbl.pack(fill="x", padx=10, pady=(0, 6))
-
-        def on_click(e, result=entry["result"]):
-            clear_all()
-            display_var.set(result)
-            history_line.configure(text="")
-
-        for w in (item, expr_lbl, res_lbl):
-            w.bind("<Button-1>", on_click)
-            w.configure(cursor="hand2")
-
-
-def add_history_entry(expr, result):
-    history_entries.append({"expr": expr, "result": result})
-    if len(history_entries) > 50:
-        history_entries.pop(0)
-    save_history()
-    render_history()
-
-
-def clear_history(event=None):
-    history_entries.clear()
-    save_history()
-    render_history()
-
-
-clear_btn = tk.Label(hist_panel, text="CLEAR LOG", font=("Consolas", 9, "bold"), bg=PANEL, fg=DANGER,
-                      highlightbackground=LINE, highlightthickness=1, pady=8, cursor="hand2")
-clear_btn.pack(fill="x", pady=(8, 0))
-clear_btn.bind("<Button-1>", clear_history)
-
-
-def switch_panel(key):
-    active_panel.set(key)
-    for name, panel in panels.items():
-        panel.pack_forget()
-    panels[key].pack(fill="both", expand=True)
-
-    for name, (frame, idx_lbl, text_lbl) in nav_buttons.items():
-        if name == key:
-            idx_lbl.configure(fg=CYAN)
-            text_lbl.configure(fg=CYAN)
-        else:
-            idx_lbl.configure(fg=TEXT_DIM)
-            text_lbl.configure(fg=TEXT_DIM)
-
-
-switch_panel("basic")
-
-
-# ---------------------------------------------------------------
-# CALCULATOR LOGIC
-# ---------------------------------------------------------------
-OPERATOR_SYMBOLS = ["÷", "×", "-", "+", "="]
-TOP_SYMBOLS = ["AC", "+/-", "%"]
-MEMORY_SYMBOLS = ["MC", "MR", "M+", "M-"]
-ADVANCED_SYMBOLS = ["√", "x²", "1/x", "sin", "cos", "tan", "log", "ln", "π", "e", "!"]
-TWO_NUMBER_SYMBOLS = ["xʸ"]
-
-
-def flash_display():
-    display.configure(fg=CYAN)
-    root.after(150, lambda: display.configure(fg=TEXT))
-
-
-def handle_input(value):
-    global A, operator, B, memory_value
-
-    if value in OPERATOR_SYMBOLS or value in TWO_NUMBER_SYMBOLS:
-        if value == "=":
-            if A is not None and operator is not None:
-                B = float(display_var.get())
-                num_a, num_b = float(A), B
-                try:
-                    if operator == "÷" and num_b == 0:
-                        raise ZeroDivisionError
-                    result = do_math(num_a, num_b, operator)
-                    expr_text = f"{remove_zero_decimal(num_a)} {operator} {remove_zero_decimal(num_b)}"
-                    history_line.configure(text=f"{expr_text} =")
-                    result_str = remove_zero_decimal(result)
-                    display_var.set(result_str)
-                    add_history_entry(expr_text, result_str)
-                    flash_display()
-                except ZeroDivisionError:
-                    display_var.set("ERR")
-                    history_line.configure(text="")
-                clear_all()
-        else:
-            if operator is not None and B is not None:
-                num_a, num_b = float(A), float(display_var.get())
-                try:
-                    if operator == "÷" and num_b == 0:
-                        raise ZeroDivisionError
-                    display_var.set(remove_zero_decimal(do_math(num_a, num_b, operator)))
-                except ZeroDivisionError:
-                    display_var.set("ERR")
-                    clear_all()
-                    return
-            A = display_var.get()
-            display_var.set("0")
-            B = "0"
-            operator = value
-
-    elif value in TOP_SYMBOLS:
-        if value == "AC":
-            clear_all()
-            display_var.set("0")
-            history_line.configure(text="")
-        elif value == "+/-":
-            display_var.set(remove_zero_decimal(float(display_var.get()) * -1))
-        elif value == "%":
-            display_var.set(remove_zero_decimal(float(display_var.get()) / 100))
-
-    elif value in MEMORY_SYMBOLS:
-        current = float(display_var.get())
-        if value == "MC":
-            memory_value = 0.0
-        elif value == "MR":
-            display_var.set(remove_zero_decimal(memory_value))
-        elif value == "M+":
-            memory_value += current
-        elif value == "M-":
-            memory_value -= current
-
-    elif value in ADVANCED_SYMBOLS:
-        current = float(display_var.get())
-        try:
-            if value == "√":
-                if current < 0:
-                    raise ValueError
-                result = math.sqrt(current)
-            elif value == "x²":
-                result = current ** 2
-            elif value == "1/x":
-                if current == 0:
-                    raise ZeroDivisionError
-                result = 1 / current
-            elif value == "sin":
-                result = math.sin(to_radians(current))
-            elif value == "cos":
-                result = math.cos(to_radians(current))
-            elif value == "tan":
-                result = math.tan(to_radians(current))
-            elif value == "log":
-                if current <= 0:
-                    raise ValueError
-                result = math.log10(current)
-            elif value == "ln":
-                if current <= 0:
-                    raise ValueError
-                result = math.log(current)
-            elif value == "π":
-                result = math.pi
-            elif value == "e":
-                result = math.e
-            elif value == "!":
-                if current < 0 or current != int(current):
-                    raise ValueError
-                result = math.factorial(int(current))
-            result_str = remove_zero_decimal(result)
-            add_history_entry(f"{value}({remove_zero_decimal(current)})", result_str)
-            display_var.set(result_str)
-            flash_display()
-        except (ValueError, ZeroDivisionError):
-            display_var.set("ERR")
-
-    elif value == "⌫":
-        current = display_var.get()
-        display_var.set("0" if len(current) <= 1 else current[:-1])
-
-    else:  # digits / decimal
-        if value == ".":
-            if "." not in display_var.get():
-                display_var.set(display_var.get() + ".")
-        else:
-            display_var.set(value if display_var.get() == "0" else display_var.get() + value)
-
-
-# ---------------------------------------------------------------
-# KEYBOARD SUPPORT
-# ---------------------------------------------------------------
-KEY_MAP = {
-    "plus": "+", "minus": "-", "asterisk": "×", "slash": "÷",
-    "Return": "=", "KP_Enter": "=", "BackSpace": "⌫", "Escape": "AC",
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ANDRE.CALC</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #05070C;
+  --panel: #0A0E18;
+  --panel-2: #0D1220;
+  --line: #1B2436;
+  --cyan: #4CF3FF;
+  --cyan-dim: #1A6E78;
+  --violet: #9B7CFF;
+  --text: #DCEFFF;
+  --text-dim: #5A7290;
+  --danger: #FF5C7A;
+  --glow: 0 0 18px rgba(76,243,255,0.35);
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(ellipse at 20% 0%, rgba(76,243,255,0.06), transparent 55%),
+    radial-gradient(ellipse at 90% 100%, rgba(155,124,255,0.06), transparent 55%),
+    var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Rajdhani', sans-serif;
+  padding: 24px;
+  color: var(--text);
 }
 
+.console {
+  display: flex;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px rgba(76,243,255,0.05), 0 30px 80px rgba(0,0,0,0.6);
+  background: var(--panel);
+  width: 100%;
+  max-width: 620px;
+}
 
-def on_key_press(event):
-    if event.char and event.char.isdigit():
-        handle_input(event.char)
-    elif event.char == ".":
-        handle_input(".")
-    elif event.keysym in KEY_MAP:
-        handle_input(KEY_MAP[event.keysym])
+/* ---------------- SIDEBAR MENU ---------------- */
+.sidebar {
+  width: 96px;
+  background: var(--panel-2);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  padding: 18px 0;
+}
+.side-brand {
+  text-align: center;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--cyan);
+  margin-bottom: 22px;
+  opacity: 0.9;
+}
+.side-brand span { display: block; color: var(--text-dim); font-size: 9px; letter-spacing: 3px; }
 
+.nav-item {
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  padding: 14px 4px;
+  cursor: pointer;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  transition: color 0.15s ease;
+}
+.nav-item .tick {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  transition: all 0.15s ease;
+}
+.nav-item:hover { color: var(--text); }
+.nav-item.active {
+  color: var(--cyan);
+}
+.nav-item.active .tick {
+  background: var(--cyan);
+  box-shadow: var(--glow);
+  width: 5px;
+  height: 5px;
+}
+.nav-item.active::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 2px;
+  background: var(--cyan);
+  box-shadow: var(--glow);
+}
+.nav-idx {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 9px;
+  color: var(--text-dim);
+  letter-spacing: 1px;
+}
 
-root.bind("<Key>", on_key_press)
+/* ---------------- MAIN PANEL ---------------- */
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 1px;
+}
+.status-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: var(--glow);
+  display: inline-block;
+  margin-right: 6px;
+  animation: pulse 2s infinite ease-in-out;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.mode-toggle {
+  display: flex;
+  gap: 2px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.mode-toggle button {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10px;
+  padding: 5px 9px;
+  cursor: pointer;
+  letter-spacing: 1px;
+}
+.mode-toggle button.active {
+  background: var(--cyan-dim);
+  color: var(--cyan);
+}
 
-# ---------------------------------------------------------------
-# STARTUP
-# ---------------------------------------------------------------
-load_history()
-render_history()
+.screen {
+  padding: 22px 22px 14px;
+  position: relative;
+}
+.screen::after {
+  content: "";
+  position: absolute;
+  left: 22px; right: 22px; bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--cyan-dim), transparent);
+}
+.history-line {
+  text-align: right;
+  color: var(--text-dim);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 13px;
+  min-height: 18px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.display {
+  text-align: right;
+  font-family: 'Orbitron', sans-serif;
+  font-weight: 700;
+  font-size: 44px;
+  color: var(--text);
+  text-shadow: 0 0 20px rgba(76,243,255,0.25);
+  min-height: 56px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  transition: text-shadow 0.2s ease;
+}
+.display.flash { text-shadow: 0 0 30px rgba(76,243,255,0.6); }
 
-root.mainloop()
+.panels { position: relative; padding: 16px 18px 20px; }
+.panel-view { display: none; }
+.panel-view.active { display: block; }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+button.key {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #0F1524;
+  color: var(--text);
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 600;
+  font-size: 18px;
+  padding: 16px 0;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+button.key:hover {
+  border-color: var(--cyan-dim);
+  background: #131A2C;
+}
+button.key:active {
+  transform: scale(0.96);
+  background: #182238;
+}
+button.key.op {
+  background: linear-gradient(160deg, #1B2A42, #101827);
+  color: var(--cyan);
+  border-color: var(--cyan-dim);
+}
+button.key.op:hover { box-shadow: var(--glow); }
+button.key.top {
+  color: var(--violet);
+  border-color: #3A2E5C;
+}
+button.key.equals {
+  background: linear-gradient(160deg, var(--cyan-dim), #0C3A40);
+  color: #06181A;
+  font-weight: 700;
+  background-color: var(--cyan);
+  color: #04141A;
+}
+button.key.equals:hover { box-shadow: 0 0 22px rgba(76,243,255,0.55); }
+button.key.sci-key {
+  font-size: 15px;
+  font-family: 'Share Tech Mono', monospace;
+}
+button.key.mem-key {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+/* history list */
+.history-list {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.history-list::-webkit-scrollbar { width: 4px; }
+.history-list::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+.hist-entry {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  text-align: right;
+  background: #0D1220;
+}
+.hist-entry:hover { border-color: var(--cyan-dim); }
+.hist-entry .expr {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.hist-entry .res {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 17px;
+  color: var(--cyan);
+  margin-top: 2px;
+}
+.hist-empty {
+  text-align: center;
+  color: var(--text-dim);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 12px;
+  padding: 30px 0;
+}
+.hist-clear {
+  width: 100%;
+  margin-top: 10px;
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--danger);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 1px;
+  padding: 8px 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.hist-clear:hover { border-color: var(--danger); }
+
+@media (max-width: 560px) {
+  .console { flex-direction: column; max-width: 380px; }
+  .sidebar { width: 100%; flex-direction: row; justify-content: space-around; padding: 10px 0; }
+  .side-brand { display: none; }
+  .nav-item { flex-direction: row; padding: 8px 10px; }
+  .nav-item.active::before { top: auto; bottom: 0; left: 10%; right: 10%; width: auto; height: 2px; }
+  .display { font-size: 34px; }
+}
+</style>
+</head>
+<body>
+
+<div class="console">
+  <div class="sidebar">
+    <div class="side-brand">ANDRE<span>CALC // v2</span></div>
+    <button class="nav-item active" data-panel="basic">
+      <span class="tick"></span>
+      <span class="nav-idx">01</span>
+      BASIC
+    </button>
+    <button class="nav-item" data-panel="sci">
+      <span class="tick"></span>
+      <span class="nav-idx">02</span>
+      SCI
+    </button>
+    <button class="nav-item" data-panel="mem">
+      <span class="tick"></span>
+      <span class="nav-idx">03</span>
+      MEM
+    </button>
+    <button class="nav-item" data-panel="hist">
+      <span class="tick"></span>
+      <span class="nav-idx">04</span>
+      LOG
+    </button>
+  </div>
+
+  <div class="main">
+    <div class="topbar">
+      <div><span class="status-dot"></span>SYSTEM READY</div>
+      <div class="mode-toggle" id="modeToggle">
+        <button data-mode="DEG" class="active">DEG</button>
+        <button data-mode="RAD">RAD</button>
+      </div>
+    </div>
+
+    <div class="screen">
+      <div class="history-line" id="historyLine"></div>
+      <div class="display" id="display">0</div>
+    </div>
+
+    <div class="panels">
+
+      <div class="panel-view active" data-view="basic">
+        <div class="grid">
+          <button class="key top" data-v="AC">AC</button>
+          <button class="key top" data-v="+/-">+/-</button>
+          <button class="key top" data-v="%">%</button>
+          <button class="key op" data-v="÷">÷</button>
+
+          <button class="key" data-v="7">7</button>
+          <button class="key" data-v="8">8</button>
+          <button class="key" data-v="9">9</button>
+          <button class="key op" data-v="×">×</button>
+
+          <button class="key" data-v="4">4</button>
+          <button class="key" data-v="5">5</button>
+          <button class="key" data-v="6">6</button>
+          <button class="key op" data-v="-">−</button>
+
+          <button class="key" data-v="1">1</button>
+          <button class="key" data-v="2">2</button>
+          <button class="key" data-v="3">3</button>
+          <button class="key op" data-v="+">+</button>
+
+          <button class="key" data-v="0">0</button>
+          <button class="key" data-v=".">.</button>
+          <button class="key top" data-v="⌫">⌫</button>
+          <button class="key equals" data-v="=">=</button>
+        </div>
+      </div>
+
+      <div class="panel-view" data-view="sci">
+        <div class="grid">
+          <button class="key sci-key" data-v="√">√</button>
+          <button class="key sci-key" data-v="x²">x²</button>
+          <button class="key sci-key" data-v="1/x">1/x</button>
+          <button class="key sci-key op" data-v="xʸ">xʸ</button>
+
+          <button class="key sci-key" data-v="sin">sin</button>
+          <button class="key sci-key" data-v="cos">cos</button>
+          <button class="key sci-key" data-v="tan">tan</button>
+          <button class="key sci-key" data-v="log">log</button>
+
+          <button class="key sci-key" data-v="π">π</button>
+          <button class="key sci-key" data-v="e">e</button>
+          <button class="key sci-key" data-v="ln">ln</button>
+          <button class="key sci-key" data-v="!">n!</button>
+        </div>
+      </div>
+
+      <div class="panel-view" data-view="mem">
+        <div class="grid">
+          <button class="key mem-key" data-v="MC">MC</button>
+          <button class="key mem-key" data-v="MR">MR</button>
+          <button class="key mem-key" data-v="M+">M+</button>
+          <button class="key mem-key" data-v="M-">M-</button>
+        </div>
+      </div>
+
+      <div class="panel-view" data-view="hist">
+        <div class="history-list" id="historyList"></div>
+        <button class="hist-clear" id="clearHistoryBtn">CLEAR LOG</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+const display = document.getElementById("display");
+const historyLine = document.getElementById("historyLine");
+const historyListEl = document.getElementById("historyList");
+const modeToggle = document.getElementById("modeToggle");
+const clearHistoryBtn = document.getElementById("clearHistoryBtn");
+
+// ---------------- Sidebar / panel switching ----------------
+const navItems = document.querySelectorAll(".nav-item");
+const panelViews = document.querySelectorAll(".panel-view");
+navItems.forEach(item => {
+  item.addEventListener("click", () => {
+    navItems.forEach(n => n.classList.remove("active"));
+    item.classList.add("active");
+    const target = item.dataset.panel;
+    panelViews.forEach(p => p.classList.toggle("active", p.dataset.view === target));
+  });
+});
+
+// ---------------- calculator logic ----------------
+const operatorSymbols = ["÷", "×", "-", "+", "="];
+const topSymbols = ["AC", "+/-", "%"];
+const memorySymbols = ["MC", "MR", "M+", "M-"];
+const advancedSymbols = ["√", "x²", "1/x", "sin", "cos", "tan", "log", "ln", "π", "e", "!"];
+const twoNumberSymbols = ["xʸ"];
+
+document.querySelectorAll("button.key").forEach(btn => {
+  btn.addEventListener("click", () => handleInput(btn.dataset.v));
+});
+
+let A = null, operator = null, B = null;
+let memoryValue = 0;
+let angleMode = "DEG";
+
+const HISTORY_KEY = "andrecalc_history_v2";
+const MODE_KEY = "andrecalc_angle_mode_v2";
+
+function loadHistory() {
+  try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; }
+  catch (e) { return []; }
+}
+function saveHistory(entries) {
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(entries)); }
+  catch (e) {}
+}
+let historyEntries = loadHistory();
+
+function renderHistory() {
+  historyListEl.innerHTML = "";
+  if (historyEntries.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "hist-empty";
+    empty.textContent = "NO ENTRIES LOGGED";
+    historyListEl.appendChild(empty);
+    return;
+  }
+  historyEntries.forEach(entry => {
+    const item = document.createElement("div");
+    item.className = "hist-entry";
+    const expr = document.createElement("div");
+    expr.className = "expr";
+    expr.textContent = entry.expr;
+    const res = document.createElement("div");
+    res.className = "res";
+    res.textContent = entry.result;
+    item.appendChild(expr);
+    item.appendChild(res);
+    item.addEventListener("click", () => {
+      clearAll();
+      display.textContent = entry.result;
+      historyLine.textContent = "";
+    });
+    historyListEl.appendChild(item);
+  });
+}
+function addHistoryEntry(expr, result) {
+  historyEntries.push({ expr, result });
+  if (historyEntries.length > 50) historyEntries.shift();
+  saveHistory(historyEntries);
+  renderHistory();
+}
+clearHistoryBtn.addEventListener("click", () => {
+  historyEntries = [];
+  saveHistory(historyEntries);
+  renderHistory();
+});
+
+function setAngleMode(mode) {
+  angleMode = mode;
+  try { localStorage.setItem(MODE_KEY, mode); } catch (e) {}
+  [...modeToggle.querySelectorAll("button")].forEach(b => b.classList.toggle("active", b.dataset.mode === mode));
+}
+modeToggle.addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-mode]");
+  if (btn) setAngleMode(btn.dataset.mode);
+});
+(function initMode() {
+  try {
+    const saved = localStorage.getItem(MODE_KEY);
+    if (saved === "DEG" || saved === "RAD") setAngleMode(saved);
+  } catch (e) {}
+})();
+
+function toRadians(v) { return angleMode === "DEG" ? v * Math.PI / 180 : v; }
+function removeZeroDecimal(num) {
+  if (Number.isInteger(num)) return String(num);
+  return String(Math.round(num * 1e8) / 1e8);
+}
+function clearAll() { A = null; operator = null; B = null; }
+function doMath(a, b, op) {
+  switch (op) {
+    case "+": return a + b;
+    case "-": return a - b;
+    case "×": return a * b;
+    case "÷": return a / b;
+    case "xʸ": return Math.pow(a, b);
+  }
+}
+function flashDisplay() {
+  display.classList.add("flash");
+  setTimeout(() => display.classList.remove("flash"), 200);
+}
+function factorial(n) {
+  let r = 1;
+  for (let i = 2; i <= n; i++) r *= i;
+  return r;
+}
+
+function handleInput(value) {
+  if (operatorSymbols.includes(value) || twoNumberSymbols.includes(value)) {
+    if (value === "=") {
+      if (A !== null && operator !== null) {
+        B = parseFloat(display.textContent);
+        const numA = parseFloat(A), numB = B;
+        try {
+          if (operator === "÷" && numB === 0) throw new Error("div0");
+          const result = doMath(numA, numB, operator);
+          const exprText = `${removeZeroDecimal(numA)} ${operator} ${removeZeroDecimal(numB)}`;
+          historyLine.textContent = `${exprText} =`;
+          display.textContent = removeZeroDecimal(result);
+          addHistoryEntry(exprText, removeZeroDecimal(result));
+          flashDisplay();
+        } catch (e) {
+          display.textContent = "ERR";
+          historyLine.textContent = "";
+        }
+        clearAll();
+      }
+    } else {
+      if (operator !== null && B !== null) {
+        const numA = parseFloat(A), numB = parseFloat(display.textContent);
+        try {
+          if (operator === "÷" && numB === 0) throw new Error("div0");
+          display.textContent = removeZeroDecimal(doMath(numA, numB, operator));
+        } catch (e) {
+          display.textContent = "ERR";
+          clearAll();
+          return;
+        }
+      }
+      A = display.textContent;
+      display.textContent = "0";
+      B = "0";
+      operator = value;
+    }
+  } else if (topSymbols.includes(value)) {
+    if (value === "AC") {
+      clearAll();
+      display.textContent = "0";
+      historyLine.textContent = "";
+    } else if (value === "+/-") {
+      display.textContent = removeZeroDecimal(parseFloat(display.textContent) * -1);
+    } else if (value === "%") {
+      display.textContent = removeZeroDecimal(parseFloat(display.textContent) / 100);
+    }
+  } else if (memorySymbols.includes(value)) {
+    const current = parseFloat(display.textContent);
+    if (value === "MC") memoryValue = 0;
+    else if (value === "MR") display.textContent = removeZeroDecimal(memoryValue);
+    else if (value === "M+") memoryValue += current;
+    else if (value === "M-") memoryValue -= current;
+  } else if (advancedSymbols.includes(value)) {
+    const current = parseFloat(display.textContent);
+    try {
+      let result;
+      switch (value) {
+        case "√": if (current < 0) throw new Error("neg"); result = Math.sqrt(current); break;
+        case "x²": result = Math.pow(current, 2); break;
+        case "1/x": if (current === 0) throw new Error("div0"); result = 1 / current; break;
+        case "sin": result = Math.sin(toRadians(current)); break;
+        case "cos": result = Math.cos(toRadians(current)); break;
+        case "tan": result = Math.tan(toRadians(current)); break;
+        case "log": if (current <= 0) throw new Error("neg"); result = Math.log10(current); break;
+        case "ln": if (current <= 0) throw new Error("neg"); result = Math.log(current); break;
+        case "π": result = Math.PI; break;
+        case "e": result = Math.E; break;
+        case "!": if (current < 0 || !Number.isInteger(current)) throw new Error("bad"); result = factorial(current); break;
+      }
+      const resultStr = removeZeroDecimal(result);
+      addHistoryEntry(`${value}(${removeZeroDecimal(current)})`, resultStr);
+      display.textContent = resultStr;
+      flashDisplay();
+    } catch (e) {
+      display.textContent = "ERR";
+    }
+  } else if (value === "⌫") {
+    const current = display.textContent;
+    display.textContent = current.length <= 1 ? "0" : current.slice(0, -1);
+  } else {
+    if (value === ".") {
+      if (!display.textContent.includes(".")) display.textContent += ".";
+    } else {
+      display.textContent = display.textContent === "0" ? value : display.textContent + value;
+    }
+  }
+}
+
+const keyMap = { "+": "+", "-": "-", "*": "×", "/": "÷", "Enter": "=", "Backspace": "⌫", "Escape": "AC" };
+document.addEventListener("keydown", (e) => {
+  if (/[0-9.]/.test(e.key)) handleInput(e.key);
+  else if (keyMap[e.key]) { e.preventDefault(); handleInput(keyMap[e.key]); }
+});
+
+renderHistory();
+</script>
+</body>
+</html>
